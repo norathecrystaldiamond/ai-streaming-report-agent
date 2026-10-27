@@ -1,0 +1,7 @@
+flask
+celery
+redis==4.5.5
+gevent
+pydantic
+langchain-openai
+langchain-core
