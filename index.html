@@ -3,22 +3,44 @@
 <head>
     <meta charset="UTF-8">
     <title>AI 企业级流式报表助手</title>
-    <script src="https://unpkg.com/vue@3/dist/vue.global.js"></script>
+    <script src="https://cdn.staticfile.net/vue/3.4.21/vue.global.min.js"></script>
     <style>
         body { font-family: sans-serif; max-width: 800px; margin: 40px auto; padding: 20px; }
         .input-group { margin-bottom: 20px; }
-        .input-group input { width: 100%; padding: 10px; font-size: 16px; box-sizing: border-box; }
+        .input-group input, .input-group select { width: 100%; padding: 10px; font-size: 16px; box-sizing: border-box; margin-top: 5px; }
         button { padding: 10px 20px; background: #007bff; color: white; border: none; cursor: pointer; border-radius: 4px; font-size: 16px; }
         button:disabled { background: #ccc; cursor: not-allowed; }
         .box { border: 1px solid #ccc; padding: 20px; border-radius: 8px; min-height: 200px; white-space: pre-wrap; background: #f9f9f9; font-size: 16px; line-height: 1.5; }
+        .history-list { margin-top: 30px; border-top: 2px dashed #ccc; padding-top: 20px; }
+        .history-item { background: #f0f4f8; padding: 15px; border-radius: 8px; margin-bottom: 10px; border-left: 4px solid #007bff; }
+        .history-query { font-weight: bold; color: #333; margin-bottom: 5px; }
+        .history-time { font-size: 12px; color: #888; margin-bottom: 10px; }
+        .history-result { font-size: 14px; color: #555; max-height: 100px; overflow-y: auto; white-space: pre-wrap;}
     </style>
 </head>
 <body>
+    <!-- 👇 核心修复：在整个 body 前面加 raw 👇 -->
+    {% raw %}
     <div id="app">
         <h2>🤖 企业级流式报表助手</h2>
         
         <div class="input-group">
-            <input id="query-input" v-model="query" placeholder="输入你的需求 (如: 帮我写一份周报)">
+            <label>1. 请输入你的具体需求：</label>
+            <input v-model="query" placeholder="例如：帮我读取文件写一份周报">
+        </div>
+
+        <div class="input-group">
+            <label>2. 选择想要的语气风格：</label>
+            <select v-model="selectedTone">
+                <option value="幽默风趣（带互联网黑话和流行语）">幽默风趣（打工人必备）</option>
+                <option value="正式严肃（职业化、逻辑严密）">正式严肃（体制内风）</option>
+                <option value="极简风格（只说重点、不长篇大论）">极简风格（老板最爱）</option>
+                <option value="自定义">✨ 自定义语气（在下框输入）</option>
+            </select>
+        </div>
+
+        <div class="input-group" v-if="selectedTone === '自定义'">
+            <input v-model="customTone" placeholder="请输入你想要的神奇语气...">
         </div>
         
         <button @click="submit" :disabled="loading">
@@ -28,28 +50,64 @@
         
         <h3>AI 生成结果：</h3>
         <div id="result-box" class="box"></div>
+
+        <div class="history-list">
+            <div style="display: flex; justify-content: space-between; align-items: center;">
+                <h3>📜 历史记录</h3>
+                <button @click="loadHistory" style="background: #28a745; padding: 5px 15px; font-size: 14px;">刷新历史</button>
+            </div>
+            
+            <div v-if="history.length === 0" style="color: #999; margin-top: 10px;">暂无历史记录</div>
+            
+            <div v-for="(item, index) in history" :key="index" class="history-item">
+                <!-- 这里就是刚才报错的地方，现在被 raw 包住，Flask 不会管它了 -->
+                <div class="history-query">需求：{{ item.user_query }}</div>
+                <div class="history-time">时间：{{ item.time }}</div>
+                <div class="history-result">{{ item.result }}</div>
+            </div>
+        </div>
     </div>
 
-    <!-- 核心修复：用 raw 标签包裹 JS，告诉 Flask 别解析里面的 {} 语法 -->
-    {% raw %}
     <script>
-        const { createApp, ref } = Vue;
-        
+        const { createApp, ref, onMounted } = Vue;
         createApp({
             setup() {
-                const query = ref("帮我读取文件写一份周报");
+                const query = ref("帮我读取 daily_log.txt 写一份周报");
+                const selectedTone = ref("幽默风趣（带互联网黑话和流行语）");
+                const customTone = ref("");
                 const loading = ref(false);
+                const history = ref([]);
+
+                const loadHistory = async () => {
+                    try {
+                        const res = await fetch('/api/history');
+                        const data = await res.json();
+                        history.value = data.data;
+                    } catch (error) {
+                        console.error("获取历史失败", error);
+                    }
+                };
+
+                onMounted(() => {
+                    loadHistory();
+                });
 
                 const submit = async () => {
                     loading.value = true;
                     const resultBox = document.getElementById('result-box');
-                    resultBox.innerText = "请求已提交，AI 正在后台努力，等待流式输出...\n\n";
+                    resultBox.innerText = "请求已提交，AI 正在后台努力...\n\n";
+                    
+                    let finalTone = selectedTone.value;
+                    if (finalTone === "自定义") {
+                        finalTone = customTone.value || "幽默"; 
+                    }
+                    const finalQuery = `${query.value}。请务必使用【${finalTone}】的语气来写。`;
                     
                     try {
                         const res = await fetch('/api/submit', {
                             method: 'POST',
                             headers: { 'Content-Type': 'application/json' },
-                            body: JSON.stringify({ user_query: query.value })
+                            body: JSON.stringify({ user_query: finalQuery }) 
                         });
                         
                         const data = await res.json();
@@ -59,30 +117,22 @@
                             if (event.data === "[DONE]") {
                                 eventSource.close();
                                 loading.value = false;
+                                loadHistory(); 
                             } else {
                                 resultBox.innerText += event.data; 
                                 resultBox.scrollTop = resultBox.scrollHeight;
                             }
                         };
-                        
-                        eventSource.onerror = (err) => {
-                            console.error("SSE 连接出错:", err);
-                            eventSource.close();
-                            loading.value = false;
-                            resultBox.innerText += "\n\n[连接已断开]";
-                        };
-                        
                     } catch (error) {
-                        console.error("请求失败:", error);
                         loading.value = false;
-                        resultBox.innerText = "请求发送失败，请检查后端是否正常运行。";
+                        resultBox.innerText = "请求发送失败。";
                     }
                 };
-                
-                return { query, loading, submit };
+                return { query, selectedTone, customTone, loading, submit, history, loadHistory };
             }
         }).mount('#app');
     </script>
+    <!-- 👆 核心修复：在 body 结尾结束 raw 👆 -->
     {% endraw %}
 </body>
 </html>
