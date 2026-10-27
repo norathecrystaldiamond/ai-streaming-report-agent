@@ -58,3 +58,11 @@ def stream(task_id):
             
     # 👈 加上 headers 防止浏览器或代理缓存阻塞流
     return Response(generate(), mimetype='text/event-stream', headers={'X-Accel-Buffering': 'no', 'Cache-Control': 'no-cache'})
+    # 在 app/api.py 最下面加上这个新路由
+@api_bp.route('/api/history', methods=['GET'])
+def get_history():
+    # lrange 是从左边取，0 到 -1 代表取全部
+    history_raw = r.lrange("history_list", 0, -1)
+    # 把取出来的字符串转回 Python 列表字典
+    history_data = [json.loads(item) for item in history_raw]
+    return jsonify({"data": history_data})
