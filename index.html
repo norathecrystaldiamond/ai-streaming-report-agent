@@ -1,0 +1,88 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+    <meta charset="UTF-8">
+    <title>AI 企业级流式报表助手</title>
+    <script src="https://unpkg.com/vue@3/dist/vue.global.js"></script>
+    <style>
+        body { font-family: sans-serif; max-width: 800px; margin: 40px auto; padding: 20px; }
+        .input-group { margin-bottom: 20px; }
+        .input-group input { width: 100%; padding: 10px; font-size: 16px; box-sizing: border-box; }
+        button { padding: 10px 20px; background: #007bff; color: white; border: none; cursor: pointer; border-radius: 4px; font-size: 16px; }
+        button:disabled { background: #ccc; cursor: not-allowed; }
+        .box { border: 1px solid #ccc; padding: 20px; border-radius: 8px; min-height: 200px; white-space: pre-wrap; background: #f9f9f9; font-size: 16px; line-height: 1.5; }
+    </style>
+</head>
+<body>
+    <div id="app">
+        <h2>🤖 企业级流式报表助手</h2>
+        
+        <div class="input-group">
+            <input id="query-input" v-model="query" placeholder="输入你的需求 (如: 帮我写一份周报)">
+        </div>
+        
+        <button @click="submit" :disabled="loading">
+            <span v-if="loading">生成中...</span>
+            <span v-else>开始生成</span>
+        </button>
+        
+        <h3>AI 生成结果：</h3>
+        <div id="result-box" class="box"></div>
+    </div>
+
+    <!-- 核心修复：用 raw 标签包裹 JS，告诉 Flask 别解析里面的 {} 语法 -->
+    {% raw %}
+    <script>
+        const { createApp, ref } = Vue;
+        
+        createApp({
+            setup() {
+                const query = ref("帮我读取文件写一份周报");
+                const loading = ref(false);
+
+                const submit = async () => {
+                    loading.value = true;
+                    const resultBox = document.getElementById('result-box');
+                    resultBox.innerText = "请求已提交，AI 正在后台努力，等待流式输出...\n\n";
+                    
+                    try {
+                        const res = await fetch('/api/submit', {
+                            method: 'POST',
+                            headers: { 'Content-Type': 'application/json' },
+                            body: JSON.stringify({ user_query: query.value })
+                        });
+                        
+                        const data = await res.json();
+                        const eventSource = new EventSource(`/api/stream/${data.task_id}`);
+                        
+                        eventSource.onmessage = (event) => {
+                            if (event.data === "[DONE]") {
+                                eventSource.close();
+                                loading.value = false;
+                            } else {
+                                resultBox.innerText += event.data; 
+                                resultBox.scrollTop = resultBox.scrollHeight;
+                            }
+                        };
+                        
+                        eventSource.onerror = (err) => {
+                            console.error("SSE 连接出错:", err);
+                            eventSource.close();
+                            loading.value = false;
+                            resultBox.innerText += "\n\n[连接已断开]";
+                        };
+                        
+                    } catch (error) {
+                        console.error("请求失败:", error);
+                        loading.value = false;
+                        resultBox.innerText = "请求发送失败，请检查后端是否正常运行。";
+                    }
+                };
+                
+                return { query, loading, submit };
+            }
+        }).mount('#app');
+    </script>
+    {% endraw %}
+</body>
+</html>
